@@ -25,7 +25,7 @@ SECRET_KEY = '42d4f7e0-b8f4-4c47-8dd1-1304b89a4190'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 # Application references
 # https://docs.djangoproject.com/en/2.1/ref/settings/#std:setting-INSTALLED_APPS
@@ -40,8 +40,12 @@ INSTALLED_APPS = [
     'guardian',
     'account',
     'task',
-    'notification',
     'file',
+    'publisher',
+    'xadmin',
+    'crispy_forms',
+    'noti',
+    'notifications'
 ]
 
 # Middleware framework
@@ -63,7 +67,7 @@ ROOT_URLCONF = 'CloudTeamworkManager.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'file/templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -79,17 +83,28 @@ TEMPLATES = [
 WSGI_APPLICATION = 'CloudTeamworkManager.wsgi.application'
 
 # Database
-# https://docs.djangoproject.com/en/2.1/ref/settings/#databases
+# # https://docs.djangoproject.com/en/2.1/ref/settings/#databases
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'cloudteamworkmanager',
-        'USER':'root',
-        'PASSWORD':'rootpassword',
-        'HOST':'',
-        'PORT':'3306',
+        'USER': 'root',
+        'PASSWORD': 'rootpassword',
+        'HOST': '',
+        'PORT': '3306',
     }
-}    
+}
+
+
+# django自带的sqlite3数据库信息
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+#     }
+# }
+
+DJANGO_NOTIFICATIONS_CONFIG = {'USE_JSONFIELD': True}
 
 # Password validation
 # https://docs.djangoproject.com/en/2.1/ref/settings/#auth-password-validators
@@ -110,18 +125,23 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 # https://docs.djangoproject.com/en/2.1/topics/i18n/
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'zh-hans'
+TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 USE_L10N = True
-USE_TZ = True
+USE_TZ = False
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/2.1/howto/static-files/
 STATIC_URL = '/static/'
-STATIC_ROOT = posixpath.join(*(BASE_DIR.split(os.path.sep) + ['static']))
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, "static"),
+]
+
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend', # this is default
     'guardian.backends.ObjectPermissionBackend',
 )
+
+AUTH_USER_MODEL = 'auth.User'

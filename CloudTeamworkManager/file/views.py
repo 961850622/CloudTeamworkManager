@@ -1,89 +1,158 @@
 import os
 import re
-from django.shortcuts import HttpResponse
+import json
+from django.shortcuts import HttpResponse, render_to_response, render
+from django.http import JsonResponse
+from django.forms.models import model_to_dict
 from .verification_code import Code
 from django.contrib.auth import logout
 from PIL import Image, ImageFilter
 from io import BytesIO
+from guardian.decorators import permission_required_or_403
+from guardian.shortcuts import assign_perm, remove_perm
+from django.shortcuts import render
+from django.http import FileResponse
+from task.models import task
+from file.models import appendix as _appendix
+from django.db import transaction
 
-
-#def movie_info_pic(request, directory):
-#    movie_id = request.GET.get('movie_id')
-#    file_name = request.GET.get('file_name')
-#    file_name = re.sub(r'[*/\\:?<>|"]', '', file_name)
-#    base_path = os.path.abspath('.') + '\\resource\\movie_info\\%s\\%s\\%s' % (movie_id, directory, file_name)
-#    try:
-#        path = base_path + '.jpeg'
-#        file = open(path, 'rb')
-#        img = file.read()
-#        return HttpResponse(img, 'image/jpeg')
-#    except FileNotFoundError:
-#        try:
-#            path = base_path + '.png'
-#            file = open(path, 'rb')
-#            img = file.read()
-#            return HttpResponse(img, 'image/png')
-#        except FileNotFoundError:
-#            path = base_path + '.jpg'
-#            file = open(path, 'rb')
-#            img = file.read()
-#            return HttpResponse(img, 'image/jpg')
-
-
-#def total_and_avatar(request, directory):
-#    file_name = request.GET.get('file_name')
-#    file_name = re.sub(r'[*/\\:?<>|"]', '', file_name)
-#    base_path = os.path.abspath('.') + '\\resource\\%s\\' % directory
-#    try:
-#        path = base_path + file_name + '.jpeg'
-#        file = open(path, 'rb')
-#        img = file.read()
-#        return HttpResponse(img, 'image/jpeg')
-#    except FileNotFoundError:
-#        try:
-#            path = base_path + file_name + '.png'
-#            file = open(path, 'rb')
-#            img = file.read()
-#            return HttpResponse(img, 'image/png')
-#        except FileNotFoundError:
-#            try:
-#                path = base_path + file_name + '.jpg'
-#                file = open(path, 'rb')
-#                img = file.read()
-#                return HttpResponse(img, 'image/jpg')
-#            except FileNotFoundError:
-#                path = base_path + 'default.jpeg'
-#                file = open(path, 'rb')
-#                img = file.read()
-#                return HttpResponse(img, 'image/jpg')
 
 def verify_code(request):
     code = Code(4)
     string, code = code.make_code()
     request.session['verify'] = string
     print(request.session['verify'])
-    # logout(request)
-    # 清除本地session文件
     return HttpResponse(code.getvalue(), 'image/png')
 
 
-#def background(request):
-#    movie_id = request.GET.get('movie_id')
-#    base_path = os.path.abspath('.') + '\\resource\\movie_info\\%s\\poster\\%s' % (movie_id, movie_id)
-#    try:
-#        path = base_path + '.jpeg'
-#        img = Image.open(path)
-#    except FileNotFoundError:
-#        try:
-#            path = base_path + '.png'
-#            img = Image.open(path)
-#        except FileNotFoundError:
-#            path = base_path + '.jpg'
-#            img = Image.open(path)
-#    crop_img = img.crop((0, 117, img.width, 184))
-#    extend_img = crop_img.resize((1200, 300))
-#    darken_img = extend_img.point(lambda p: p * 0.7)
-#    blur_img = darken_img.filter(ImageFilter.GaussianBlur(radius=15))
-#    new_img = BytesIO()
-#    blur_img.save(new_img, 'jpeg')
-#    return HttpResponse(new_img.getvalue(), 'image/jpeg')
+def show_image(request, file_name):
+    img = open(os.path.join("static/total/" + file_name), 'rb')
+    return HttpResponse(img.read(), 'image/jpg')
+
+
+def avatar(request):
+    if not request.user.is_authenticated:
+        return HttpResponse(status="403")
+
+    if request.method == "GET":
+        if os.path.exists("static/avatar/"+str(request.user.id)+'.jpg'):
+            ava = open(os.path.join("static/avatar/"+str(request.user.id)+'.jpg'), 'rb')
+            return HttpResponse(ava.read(), "image/jpg")
+        else:
+            ava = open(os.path.join("static/avatar/default_avatar.png"), 'rb')
+            return HttpResponse(ava.read(), "image/png")
+
+    if request.method == "POST":
+        user_id = request.user.id
+        myFile = request.FILES.get('avatar')
+
+        if not myFile:
+            return JsonResponse({"tip": "没有文件", "status": 400}, safe=False)
+
+        destination = open(os.path.join("static/avatar/"+str(user_id)+'.jpg'), 'wb+')
+        for chunk in myFile.chunks():
+            destination.write(chunk)
+        destination.close()
+
+        return JsonResponse({"tip": "操作成功", "status": 200}, safe=False)
+
+
+@permission_required_or_403('task.glance_over_task_details', (task, 'id', 'task_id'))
+@transaction.atomic
+def appendix(request, task_id, file_name):
+    if request.method == 'POST':
+        _file = request.FILES.get("appendix")
+        for a, b, filename in os.walk('./file/appendixes/%s'%task_id):
+            if _file.name == filename:
+                return JsonResponse({"tip": "文件已存在", "status": 400}, safe=False)
+
+        file = open("./file/appendixes/%s/%s"%(task_id, _file.name), 'wb')
+        for chunk in _file.chunks():
+            file.write(chunk)
+        file.close()
+        file_size = os.path.getsize(".\\file\\appendixes\\%s\\%s" %(task_id, _file.name))
+        file = _appendix.objects.create(name=_file.name, task_id=task_id, publisher=request.user.id,size=file_size)
+        target_task = task.objects.select_for_update().get(id = task_id)
+        task_files = target_task.appendixes
+        task_files = json.loads(task_files)
+        task_files.append(file.id)
+        task_files = json.dumps(task_files)
+        target_task.appendixes = task_files
+        target_task.save()
+
+        assign_perm('file.edit_appendix', request.user, file)
+        assign_perm('file.delete_appendix', request.user, file)
+
+        return JsonResponse({"tip": "操作成功", "status": 200}, safe=False)
+
+    if request.method == 'GET':
+        file = open("./file/appendixes/%s/%s" % (task_id, file_name), 'rb')
+        response = FileResponse(file)
+        response['Content-Type'] = 'application/octet-stream'
+        response['Content-Disposition'] = ('attachment; filename="%s"'%file_name).encode('utf-8').decode('ISO-8859-1')
+        return response
+
+
+def rename(request, task_id, appendix_id):
+    target_task = task.objects.get(id = task_id)
+    target_appendix = _appendix.objects.get(id = appendix_id)
+
+    if request.user.has_perm("task.edit_appendix", target_task) or request.user.has_perm("file.edit_appendix", target_appendix):
+        target_appendix_name = target_appendix.name
+
+        target_appendix.name = request.POST.get("filename")
+        target_appendix.save()
+
+        os.rename('./file/appendixes/%s/%s' % (task_id, target_appendix_name), './file/appendixes/%s/%s' % (task_id, target_appendix.filename))
+
+        return JsonResponse({"tip": "操作成功", "status": 200}, safe=False)
+    return HttpResponse(status=403)
+
+
+def delete(request, task_id, appendix_id):
+    target_task = task.objects.get(id=task_id)
+    target_appendix = _appendix.objects.get(id=appendix_id)
+
+    if request.user.has_perm("task.delete_appendix", target_task) or request.user.has_perm("file.delete_appendix",target_appendix):
+        target_appendix_name = target_appendix.name
+        _appendix.objects.filter(id=appendix_id).delete()
+        task_files = target_task.appendixes
+        task_files = json.loads(task_files)
+        task_files.remove(appendix_id)
+        task_files = json.dumps(task_files)
+        target_task.appendixes = task_files
+        target_task.save()
+
+        path = './file/appendixes/%s/%s'% (task_id, target_appendix_name)
+        if os.path.exists(path):
+            os.remove(path)
+
+            return JsonResponse({"tip": "操作成功", "status": 200}, safe=False)
+        return JsonResponse({"tip": "文件不存在", "status": 400}, safe=False)
+    return HttpResponse(status=403)
+
+
+def overlay(request, task_id, file_id):
+    target_appendix = _appendix.objects.get(id=file_id)
+    target_task = task.objects.get(id=task_id)
+    if request.user.has_perm("task.edit_appendix", target_task) or request.user.has_perm("file.edit_appendix", target_appendix):
+        HDD_file = open("./file/appendixes/%s/%s" % (task_id, target_appendix.name), 'wb')
+        _file = request.FILES.get("appendix")
+        for chunk in _file.chunks():
+            HDD_file.write(chunk)
+        HDD_file.close()
+
+        file_size = os.path.getsize("./file/appendixes/%s/%s" % (task_id, target_appendix.name))
+        target_appendix.size = file_size
+        target_appendix.save()
+        return JsonResponse({"tip": "操作成功", "status": 200}, safe=False)
+    return HttpResponse(status=403)
+
+def table(request, task_id):
+    filesname=[]
+    files_id = task.objects.get(id=task_id).appendixes
+    files_id = json.loads(files_id)
+    for file_id in files_id:
+        file_name = _appendix.objects.filter(id = file_id).values("id", "name", "size")[0]
+        filesname.append(file_name)
+    return JsonResponse(filesname, safe=False)
